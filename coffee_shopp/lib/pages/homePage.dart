@@ -305,7 +305,7 @@ class _HomepageState extends State<Homepage> {
                             crossAxisCount: 2,  // İki sütunlu bir ızgara düzeni
                             crossAxisSpacing: 10.0,  // Sütunlar arasındaki mesafe
                             mainAxisSpacing: 10.0,   // Satırlar arasındaki mesafe
-                            childAspectRatio: 0.70,  // Kart boyut oranı
+                            childAspectRatio:  screenWidth / (screenHeight * 0.65),  // Kart boyut oranı
                           ),
                           shrinkWrap: true, // GridView'in yüksekliğini sınırlamak için
                           physics: NeverScrollableScrollPhysics(), // Kaydırma engelleniyor

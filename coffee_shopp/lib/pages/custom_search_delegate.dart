@@ -39,6 +39,8 @@ class CustomSearchDelegate extends SearchDelegate{
 
   @override
   Widget buildResults(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
     List<Coffees> filteredCoffee = allCoffee
         .where((element) => element.coffeeName.toLowerCase().contains(query.toLowerCase()))
         .toList();
@@ -47,7 +49,7 @@ class CustomSearchDelegate extends SearchDelegate{
         ? GridView.builder(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2, // Bir satırdaki öğe sayısı
-          childAspectRatio: 0.7,
+          childAspectRatio:  screenWidth / (screenHeight * 0.65),  // Kart boyut oranı
           crossAxisSpacing: 8.0, // Yatayda öğeler arası boşluk
           mainAxisSpacing: 8.0, // Dikeyde öğeler arası boşluk
         ),
