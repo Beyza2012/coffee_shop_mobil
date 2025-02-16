@@ -16,6 +16,8 @@ import '../classes/Adresses.dart';
 import '../classes/creditCards.dart';
 import '../service/cartProvider.dart';
 import '../widgets/availableTitle.dart';
+import '../widgets/custom_dropdownbuttonfield.dart';
+import '../widgets/custom_text_form_field.dart';
 import '../widgets/payment_card_list.dart';
 import 'navigationBar.dart';
 class paymentPage extends StatefulWidget {
@@ -30,30 +32,6 @@ class paymentPage extends StatefulWidget {
 
 class _paymentPageState extends State<paymentPage> {
 
-  Future<CreditCards?> getSelectedCard(String userId) async {
-    final cardRef = FirebaseFirestore.instance
-        .collection('Users')
-        .doc(userId)
-        .collection('CreditCards')
-        .where('selected', isEqualTo: true)
-        .limit(1); // Sadece bir kart al
-
-    final snapshot = await cardRef.get();
-
-    if (snapshot.docs.isNotEmpty) {
-      final cardData = snapshot.docs.first.data();
-      return CreditCards(
-        cardNo: cardData['cardNo'],
-        month: cardData['month'],
-        years: cardData['years'],
-        cvv: cardData['cvv'],
-        cardName: cardData['cardName'],
-        holderName: cardData['holderName'],
-      );
-    }
-
-    return null; // Eğer seçili kart yoksa
-  }
   Stream<List<Adresses>> getAdresses() {
     return FirebaseFirestore.instance
         .collection('Users')
@@ -97,41 +75,37 @@ class _paymentPageState extends State<paymentPage> {
     });
   }
   Future<void> addCreditCard(CreditCards creditCard) async {
-    try {
-      if (_formKey.currentState!.validate()) {
-        await FirebaseFirestore.instance
+    if (_formKey.currentState!.validate()) {
+      try {
+        // Daha önce kaydedilmiş kredi kartı olup olmadığını kontrol ediyoruz
+        bool isFirstCard = (await FirebaseFirestore.instance
             .collection('Users')
-            .doc(currentUser!.uid)
+            .doc(currentUser?.uid)
+            .collection('CreditCard')
+            .get())
+            .docs
+            .isEmpty;
+
+        // Yeni kredi kartını eklerken, eğer ilk kartsa selected: true, değilse selected: false
+        DocumentReference docRef = await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(currentUser?.uid)
             .collection('CreditCard')
             .add({
-          'cardNo': cardNoController.text,
-          'holderName': holderNameController.text,
-          'month': monthController.text,
-          'years': yearController.text,
-          'cvv': cvvController.text,
-          'cardName': cardNameController.text,
-          'selected': false,
+          ...creditCard.toFirestore(),
+          'selected': isFirstCard,  // İlk kartsa selected: true
         });
 
-        final updatedCardSnapshot = await FirebaseFirestore.instance
-            .collection('Users')
-            .doc(currentUser!.uid)
-            .collection('CreditCard').get();
-        final updatedCards = updatedCardSnapshot.docs.map((doc) {
-          return CreditCards.fromFirestore(doc.id, doc.data());
-        }).toList();
-        Provider.of<CreditCardProvider>(context, listen: false).setCreditCards(
-            updatedCards);
-      }
-    }
-      catch(e){
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Kredi kartı başarıyla eklendi!")),
+        );
+      } catch (e) {
         print("Hata oluştu: $e");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Ekleme sırasında bir hata oluştu.")),
         );
+      }
     }
-
-
   }
   Future<String?> addCartItemsToFirestore(List<Map<String, dynamic>> cartItems, String userId,CreditCards selectedCard,Adresses selectedAdress) async {
     try {
@@ -183,6 +157,14 @@ class _paymentPageState extends State<paymentPage> {
     }
   }
 
+  late Stream<List<CreditCards>> creditCardStream;
+
+  @override
+  void initState() {
+    super.initState();
+    creditCardStream = getCreditCards(currentUser!.uid);
+  }
+
 
 
   @override
@@ -197,10 +179,11 @@ class _paymentPageState extends State<paymentPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Column(
-        children: [
-          StreamBuilder<List<CreditCards>>(
-              stream: getCreditCards(currentUser!.uid),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            StreamBuilder<List<CreditCards>>(
+              stream: creditCardStream,
               builder: (context, cardSnapshot) {
                 if (cardSnapshot.connectionState == ConnectionState.waiting) {
                   // Eğer Stream henüz bağlanmadıysa CircularProgressIndicator göster
@@ -213,18 +196,257 @@ class _paymentPageState extends State<paymentPage> {
                 }
                 final creditCards = cardSnapshot.data ?? [];
                 if (creditCards.isEmpty) {
-                  return PaymentCardForm(); // Eğer kart yoksa form göster
+                  return Column(
+                    children: [
+                      Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Card(
+                            color: Colors.white,
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    top: screenHeight * 0.02,
+                                    right: screenWidth * 0.10,
+                                    left: screenWidth * 0.10,
+                                    bottom: screenWidth * 0.02,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      AvailableTitle("Kart Bilgileri"),
+                                    ],
+                                  ),
+                                ),
+                                Divider(
+                                  color: Color.fromRGBO(198, 124, 78, 1), // Çizgi rengi
+                                  thickness: 2,       // Kalınlık
+                                  indent: 20,         // Soldan boşluk
+                                  endIndent: 20,      // Sağdan boşluk
+                                ),
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    top: screenHeight * 0.02,
+                                    right: screenWidth * 0.10,
+                                    left: screenWidth * 0.10,
+                                    bottom: screenWidth * 0.05,
+                                  ),
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CustomTextFormField(
+                                          controller: cardNameController,
+                                          hintText: "Kart Adı",
+                                          validator: (value) {
+                                            if (value == null || value.isEmpty) {
+                                              return "Bir kart adı girin.";
+                                            } else {
+                                              return null;}
+                                          },
+                                        ),
+                                        SizedBox(height: 16),
+                                        CustomTextFormField(
+                                          controller: cardNoController,
+                                          hintText: "Kart Numarası",
+                                          validator: (value) {
+                                            if (value == null || value.isEmpty) {
+                                              return "Bir kart numarası girin.";
+                                            } else {return null;}
+                                          },
+                                        ),
+                                        SizedBox(height: 16),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Padding(
+                                                padding: EdgeInsets.only(right:screenWidth * 0.03 ),
+                                                child: CustomDropdownFormField(
+                                                  controller: monthController,
+                                                  hintText:"Ay",
+                                                  items: months,
+                                                  onChanged: (selectedMonth) {
+                                                    // Seçilen ay controller'a aktarılır
+                                                  },
+                                                  validator: (value) {
+                                                    if (value == null || value.isEmpty) {
+                                                      return "Ay seçimi zorunludur.";
+                                                    }
+                                                    return null;
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                            Expanded(
+                                              child: Padding(
+                                                padding: EdgeInsets.only(left: screenWidth * 0.03 ),
+                                                child: CustomDropdownFormField(
+                                                  controller: yearController,
+                                                  hintText: "Yıl",
+                                                  items: years,
+                                                  onChanged: (selectedYear) {
+                                                    // Seçilen yıl controller'a aktarılır
+                                                  },
+                                                  validator: (value) {
+                                                    if (value == null || value.isEmpty) {
+                                                      return "Yıl seçimi zorunludur.";
+                                                    }
+                                                    return null;
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        SizedBox(height: 16),
+                                        CustomTextFormField(
+                                          controller: cvvController,
+                                          hintText: "CVV",
+                                          validator: (value) {
+                                            if (value == null || value.isEmpty) {
+                                              return "CVV girin.";
+                                            } else {return null;}
+                                          },
+                                        ),
+                                        SizedBox(height: 16),
+                                        CustomTextFormField(
+                                          controller: holderNameController,
+                                          hintText: "Kart Üzrindeki İsim",
+                                          validator: (value) {
+                                            if (value == null || value.isEmpty) {
+                                              return "Bir isim girin.";
+                                            } else {
+                                              return null;}
+                                          },
+                                        ),
+                                        Row(
+                                          children: [
+                                            Checkbox(
+                                              value: saveCard,
+                                              onChanged: (bool? value) {
+                                                setState(() {
+                                                  saveCard = value ?? false;
+                                                });
+                                              },
+                                            ),
+                                            Text("Kartı Kaydet"),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                      ),
+
+
+                    ],
+                  ); // Eğer kart yoksa form göster
                 }
                 else{
-                  CreditCards? selectedCard = creditCards.firstWhere(
+                  CreditCards? selectedCard = creditCards.isNotEmpty
+                      ? creditCards.firstWhere(
                         (card) => card.selected ?? false,
-                    orElse: () => creditCards.first, // İlk kartı seç (eğer varsa)
-                  );
-                  Provider.of<CreditCardProvider>(context, listen: false).setSelectedCard(selectedCard);
+                    orElse: () => creditCards.first,
+                  )
+                      : null; // Eğer liste boşsa, null ata
+
+                  Provider.of<CreditCardProvider>(context, listen: false).setSelectedCard(selectedCard!);
 
                   // **Eğer kredi kartları varsa, listeyi göster**
                   return Card(
                     child:
+                    Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(
+                            top: screenHeight * 0.02,
+                            right: screenWidth * 0.10,
+                            left: screenWidth * 0.10,
+                            bottom: screenWidth * 0.02,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              AvailableTitle("Kart Bilgileri"),
+                            ],
+                          ),
+                        ),
+                        Divider(
+                          color: Color.fromRGBO(198, 124, 78, 1), // Çizgi rengi
+                          thickness: 2,       // Kalınlık
+                          indent: 20,         // Soldan boşluk
+                          endIndent: 20,      // Sağdan boşluk
+                        ),
+                        Padding(
+                          padding: EdgeInsets.only(
+                            top: screenHeight * 0.02,
+                            right: screenWidth * 0.06,
+                            left: screenWidth * 0.06,
+                            bottom: screenWidth * 0.05,
+                          ),
+                          child: Column(
+                            children: [
+                              // Seçili olan kartı göster
+                              PaymentSelectedCard(card: selectedCard),
+
+                              // Kart değiştirme butonu
+                              TextButton(
+                                onPressed: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    builder: (context) {
+                                      return PaymentCardList( creditCards: creditCards);
+                                    },
+                                  );
+                                },
+                                child: AvailableText("Kart Değiştir"),
+                              ),
+
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+              },
+            ),
+            Column(
+              children: [
+                StreamBuilder<List<Adresses>>(
+                  stream: getAdresses(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Center(child: CircularProgressIndicator());
+                    } else if (snapshot.hasError) {
+                      return Center(child: Text("Bir hata oluştu."));
+                    } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      return Column(children:[
+                        AvailableText("Henüz bir adres girilmedi."),
+                        GestureDetector(
+                            onTap: (){
+                              Navigator.push(context, MaterialPageRoute(builder: (context) => Adresspage()));
+                            },
+                            child: AvailableText("Bir adres giriniz.")),
+
+
+                      ] );
+                    }
+                    final adresses = snapshot.data ?? [];
+                    // **Seçili olan adresi bul**
+                    Adresses? selectedAdress = adresses.firstWhere(
+                          (adress) => adress.selected ?? false,
+                      orElse: () => adresses.first, // Eğer seçili adres yoksa ilk adresi göster
+                    );
+                    Provider.of<AdressesProvider>(context, listen: false).setSelectedAdress(selectedAdress);
+
+                    return Card(
+                      child:
                       Column(
                         children: [
                           Padding(
@@ -237,7 +459,7 @@ class _paymentPageState extends State<paymentPage> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                AvailableTitle("Kart Bilgileri"),
+                                AvailableTitle("Seçili Adres"),
                               ],
                             ),
                           ),
@@ -257,7 +479,7 @@ class _paymentPageState extends State<paymentPage> {
                             child: Column(
                               children: [
                                 // Seçili olan kartı göster
-                                PaymentSelectedCard(card: selectedCard),
+                                PaymentSelectedAdress(adress: selectedAdress),
 
                                 // Kart değiştirme butonu
                                 TextButton(
@@ -265,11 +487,11 @@ class _paymentPageState extends State<paymentPage> {
                                     showModalBottomSheet(
                                       context: context,
                                       builder: (context) {
-                                        return PaymentCardList( creditCards: creditCards);
+                                        return PaymentAddressList(adresses: adresses);
                                       },
                                     );
                                   },
-                                  child: AvailableText("Kart Değiştir"),
+                                  child: AvailableText("Adres Değiştir"),
                                 ),
 
                               ],
@@ -277,102 +499,15 @@ class _paymentPageState extends State<paymentPage> {
                           ),
                         ],
                       ),
-                  );
-                }
+                    );
 
-              },
-              ),
-          Column(
-            children: [
-              Padding(
-                padding: EdgeInsets.only(
-                  top: screenHeight * 0.02,
-                  right: screenWidth * 0.10,
-                  left: screenWidth * 0.10,
-                  bottom: screenWidth * 0.02,
+                  },
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    AvailableTitle("Seçili Adres"),
-                  ],
-                ),
-              ),
-              Divider(
-                color: Color.fromRGBO(198, 124, 78, 1), // Çizgi rengi
-                thickness: 2,       // Kalınlık
-                indent: 20,         // Soldan boşluk
-                endIndent: 20,      // Sağdan boşluk
-              ),
-              StreamBuilder<List<Adresses>>(
-                stream: getAdresses(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator());
-                  } else if (snapshot.hasError) {
-                    return Center(child: Text("Bir hata oluştu."));
-                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return Column(children:[
-                        AvailableText("Henüz bir adres girilmedi."),
-                        GestureDetector(
-                          onTap: (){
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => Adresspage()));
-                          },
-                            child: AvailableText("Bir adres giriniz.")),
+              ],
+            ),
 
-
-                    ] );
-                  }
-                  final adresses = snapshot.data ?? [];
-                  // **Seçili olan adresi bul**
-                  Adresses? selectedAdress = adresses.firstWhere(
-                        (adress) => adress.selected ?? false,
-                    orElse: () => adresses.first, // Eğer seçili adres yoksa ilk adresi göster
-                  );
-                  Provider.of<AdressesProvider>(context, listen: false).setSelectedAdress(selectedAdress);
-
-                  return Card(
-                    child:
-                    Column(
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.only(
-                            top: screenHeight * 0.02,
-                            right: screenWidth * 0.06,
-                            left: screenWidth * 0.06,
-                            bottom: screenWidth * 0.05,
-                          ),
-                          child: Column(
-                            children: [
-                              // Seçili olan kartı göster
-                              PaymentSelectedAdress(adress: selectedAdress),
-
-                              // Kart değiştirme butonu
-                              TextButton(
-                                onPressed: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    builder: (context) {
-                                      return PaymentAddressList(adresses: adresses);
-                                    },
-                                  );
-                                },
-                                child: AvailableText("Adres Değiştir"),
-                              ),
-
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-
-                },
-              ),
-            ],
-          ),
-
-        ],
+          ],
+        ),
       ),
       bottomNavigationBar: buildBottomBar(),
     );
@@ -398,7 +533,7 @@ class _paymentPageState extends State<paymentPage> {
           SizedBox(
             width: 200,
             child: ElevatedButton(
-             style:  ButtonStyle(
+              style:  ButtonStyle(
                   shape: WidgetStateProperty.all(
                     RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)
@@ -424,7 +559,30 @@ class _paymentPageState extends State<paymentPage> {
                         (route) => false,
                   );
                   cartProvider.clearCart(currentUser!.uid);
-                } else {
+                }
+                else if(selectedCard == null && selectedAdress != null && _formKey.currentState!.validate()) {
+                  final newCard = CreditCards(
+                      cardNo: cardNoController.text,
+                      month: monthController.text,
+                      years: yearController.text,
+                      cvv: cvvController.text,
+                      cardName: cardNameController.text,
+                      holderName: holderNameController.text);
+                  if (saveCard) {
+                    addCreditCard(newCard);
+                  }
+                  String? result = await addCartItemsToFirestore(widget.items, currentUser!.uid, newCard, selectedAdress);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(result ?? "Bilinmeyen hata.")),
+                  );
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (context) => BarMenu()),
+                        (route) => false,
+                  );
+                  cartProvider.clearCart(currentUser!.uid);
+                }
+                else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text("sipariş alınamadı")),
                   );
